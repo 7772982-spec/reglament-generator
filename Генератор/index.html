@@ -1,0 +1,407 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Генератор регламента</title>
+<style>
+  :root {
+    --bg: #f6f5f2; --card: #ffffff; --text: #1d1d1f; --muted: #6e6e73;
+    --line: #e2e0da; --accent: #0a6cff; --accent-soft: #e8f0ff; --ok: #1a7f37;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif; }
+  main { max-width: 980px; margin: 0 auto; padding: 28px 16px 60px; }
+  h1 { font-size: 26px; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 24px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+          padding: 20px; margin-bottom: 18px; }
+  .card h2 { font-size: 17px; margin: 0 0 14px; }
+  .step { display: inline-block; width: 24px; height: 24px; border-radius: 50%;
+          background: var(--accent); color: #fff; text-align: center; line-height: 24px;
+          font-size: 13px; margin-right: 8px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+  label.f { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+  input[type=text], input[type=date], input[type=time], input[type=number] {
+    width: 100%; padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px;
+    font: inherit; background: #fff; color: var(--text); }
+  .sport { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; }
+  .sport > summary { cursor: pointer; font-weight: 600; list-style: none; }
+  .sport > summary::-webkit-details-marker { display: none; }
+  .sport > summary::before { content: "▸ "; color: var(--muted); }
+  .sport[open] > summary::before { content: "▾ "; }
+  .count { color: var(--accent); font-weight: 500; margin-left: 6px; }
+  .dists { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px;
+          border: 1px solid var(--line); border-radius: 20px; cursor: pointer; user-select: none; }
+  .chip:has(input:checked) { background: var(--accent-soft); border-color: var(--accent); }
+  .custom { margin-top: 12px; display: flex; flex-wrap: wrap; gap: 8px; align-items: end; }
+  .custom .seg { width: 110px; }
+  .custom .seg input { padding: 7px 8px; }
+  button { font: inherit; border: 0; border-radius: 10px; padding: 10px 16px; cursor: pointer; }
+  .primary { background: var(--accent); color: #fff; font-weight: 600; font-size: 16px; padding: 12px 22px; }
+  .ghost { background: #efeee9; color: var(--text); }
+  .small { padding: 7px 12px; font-size: 14px; }
+  .actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  .msg { margin-top: 12px; padding: 10px 12px; border-radius: 8px; display: none; }
+  .msg.ok { display: block; background: #e9f6ec; color: var(--ok); }
+  .msg.err { display: block; background: #fdecec; color: #b42318; }
+  pre { white-space: pre-wrap; background: #fbfaf7; border: 1px solid var(--line); border-radius: 10px;
+        padding: 16px; font: 13px/1.5 ui-monospace, Menlo, monospace; max-height: 70vh; overflow: auto; }
+  .hint { color: var(--muted); font-size: 13px; }
+  #result { display: none; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Генератор регламента и тайминга</h1>
+  <p class="sub">Выберите виды спорта и дистанции, укажите дату и нажмите «Создать регламент».</p>
+
+  <section class="card">
+    <h2><span class="step">1</span>Мероприятие</h2>
+    <div class="grid">
+      <div><label class="f">Дата мероприятия *</label><input type="date" id="date"></div>
+      <div><label class="f">Время первого старта</label><input type="time" id="startTime" value="08:00"></div>
+      <div><label class="f">Интервал между стартами, минут</label><input type="number" id="interval" value="30" min="0" step="5"></div>
+      <div><label class="f">Название</label><input type="text" id="title" placeholder="Например: Кубок города по триатлону"></div>
+      <div><label class="f">Место проведения</label><input type="text" id="place" placeholder="Город, адрес старта"></div>
+      <div><label class="f">Организатор</label><input type="text" id="org" placeholder="Название организации"></div>
+      <div><label class="f">Контакты для участников</label><input type="text" id="contacts" placeholder="Телефон, почта, сайт"></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2><span class="step">2</span>Виды спорта и дистанции</h2>
+    <p class="hint" style="margin-top:-6px">Нажмите на вид спорта, отметьте дистанции. Своя дистанция добавляется внизу каждого вида.</p>
+    <div id="sports"></div>
+  </section>
+
+  <section class="card">
+    <div class="actions">
+      <button class="primary" id="generate">Создать регламент</button>
+      <span class="hint" id="summary">Дистанции не выбраны</span>
+    </div>
+    <div class="msg" id="formMsg"></div>
+  </section>
+
+  <section class="card" id="result">
+    <h2><span class="step">3</span>Готовый регламент</h2>
+    <div class="actions">
+      <button class="primary small" id="save">Сохранить файл в папку</button>
+      <button class="ghost small" id="copy">Скопировать текст</button>
+      <button class="ghost small" id="openFile" style="display:none">Открыть файл</button>
+      <button class="ghost small" id="openFolder" style="display:none">Открыть папку</button>
+    </div>
+    <div class="msg" id="saveMsg"></div>
+    <pre id="output"></pre>
+  </section>
+</main>
+
+<script>
+// ---------- Справочник: виды спорта, этапы, дистанции ----------
+// pace — минут на 1 км для расчёта лимита времени.
+const SEG = {
+  swim: { name: "плавание",  pace: 37 },
+  bike: { name: "велосипед", pace: 60 / 22 },
+  run:  { name: "бег",       pace: 8.5 },
+  trail:{ name: "бег",       pace: 15 },
+  ski:  { name: "лыжи",      pace: 10 },
+};
+const SPORTS = [
+  { id: "tri", name: "Триатлон", segs: ["swim", "bike", "run"], transition: true, distances: [
+    ["Суперспринт", [0.4, 10, 2.5]], ["Спринт", [0.75, 20, 5]], ["Олимпийская", [1.5, 40, 10]],
+    ["Половинная (113 км)", [1.9, 90, 21.1]], ["Полная (226 км)", [3.8, 180, 42.2]] ] },
+  { id: "run", name: "Бег", segs: ["run"], distances: [
+    ["Детский забег", [1]], ["", [3]], ["", [5]], ["", [10]], ["Полумарафон", [21.1]], ["Марафон", [42.2]] ] },
+  { id: "swim", name: "Плавание на открытой воде", segs: ["swim"], distances: [
+    ["", [1]], ["", [3]], ["", [5]], ["", [10]] ] },
+  { id: "duath", name: "Дуатлон", segs: ["run", "bike", "run"], transition: true, distances: [
+    ["Спринт", [5, 20, 2.5]], ["Стандарт", [10, 40, 5]] ] },
+  { id: "aqua", name: "Акватлон", segs: ["swim", "run"], transition: true, distances: [
+    ["Спринт", [0.75, 5]], ["Стандарт", [1, 5]] ] },
+  { id: "bike", name: "Велогонка", segs: ["bike"], distances: [
+    ["", [25]], ["", [50]], ["", [100]] ] },
+  { id: "trail", name: "Трейл", segs: ["trail"], distances: [
+    ["", [10]], ["", [25]], ["", [50]] ] },
+  { id: "ski", name: "Лыжные гонки", segs: ["ski"], distances: [
+    ["", [5]], ["", [10]], ["", [30]], ["", [50]] ] },
+];
+
+const km = n => String(Math.round(n * 100) / 100).replace(".", ",") + " км";
+const kmShort = n => String(Math.round(n * 100) / 100).replace(".", ",");
+function distLabel(sport, d) {
+  const lens = d.lens;
+  const len = lens.length === 1 ? km(lens[0])
+    : lens.map(kmShort).join(" / ") + " км (" + sport.segs.map(s => SEG[s].name).join(" / ") + ")";
+  return d.name ? d.name + " — " + len : len;
+}
+
+// ---------- Отрисовка списка видов спорта ----------
+const custom = {}; // sportId -> [{name, lens}]
+function renderSports() {
+  const box = document.getElementById("sports");
+  const openIds = [...box.querySelectorAll("details[open]")].map(e => e.dataset.id);
+  const checked = new Set([...box.querySelectorAll("input[type=checkbox]:checked")].map(e => e.value));
+  box.innerHTML = "";
+  SPORTS.forEach(sp => {
+    const det = document.createElement("details");
+    det.className = "sport"; det.dataset.id = sp.id;
+    if (openIds.includes(sp.id)) det.open = true;
+    det.innerHTML = `<summary>${sp.name}<span class="count"></span></summary>`;
+    const list = document.createElement("div"); list.className = "dists";
+    const all = sp.distances.map(([name, lens]) => ({ name, lens })).concat(custom[sp.id] || []);
+    all.forEach((d, i) => {
+      const value = sp.id + ":" + i;
+      const chip = document.createElement("label"); chip.className = "chip";
+      chip.innerHTML = `<input type="checkbox" value="${value}"> ${distLabel(sp, d)}`;
+      const cb = chip.querySelector("input");
+      cb.checked = checked.has(value) || d.justAdded === true;
+      d.justAdded = false;
+      cb.addEventListener("change", updateSummary);
+      list.appendChild(chip);
+    });
+    det.appendChild(list);
+
+    const c = document.createElement("div"); c.className = "custom";
+    c.innerHTML = sp.segs.map(s => `<div class="seg"><label class="f">${SEG[s].name}, км</label><input type="number" min="0" step="0.1"></div>`).join("")
+      + `<div style="flex:1;min-width:160px"><label class="f">Название (необязательно)</label><input type="text" placeholder="Своя дистанция"></div>`
+      + `<button class="ghost small">+ Добавить свою дистанцию</button>`;
+    c.querySelector("button").addEventListener("click", () => {
+      const nums = [...c.querySelectorAll("input[type=number]")].map(i => parseFloat(String(i.value).replace(",", ".")));
+      if (nums.some(n => !(n > 0))) { alert("Укажите длину каждого этапа в километрах (больше нуля)."); return; }
+      const name = c.querySelector("input[type=text]").value.trim();
+      (custom[sp.id] = custom[sp.id] || []).push({ name: name || "Своя дистанция", lens: nums, justAdded: true });
+      renderSports(); updateSummary();
+    });
+    det.appendChild(c);
+    box.appendChild(det);
+  });
+  updateSummary();
+}
+
+function selected() {
+  return [...document.querySelectorAll("#sports input[type=checkbox]:checked")].map(cb => {
+    const [sid, idx] = cb.value.split(":");
+    const sp = SPORTS.find(s => s.id === sid);
+    const all = sp.distances.map(([name, lens]) => ({ name, lens })).concat(custom[sid] || []);
+    return { sport: sp, dist: all[+idx] };
+  });
+}
+
+function updateSummary() {
+  document.querySelectorAll("#sports details").forEach(det => {
+    const n = det.querySelectorAll("input[type=checkbox]:checked").length;
+    det.querySelector(".count").textContent = n ? "· выбрано: " + n : "";
+  });
+  const n = selected().length;
+  document.getElementById("summary").textContent = n ? "Выбрано дистанций: " + n : "Дистанции не выбраны";
+}
+
+// ---------- Время и даты ----------
+const MONTHS = ["января","февраля","марта","апреля","мая","июня","июля","августа","сентября","октября","ноября","декабря"];
+const WEEKDAYS = ["воскресенье","понедельник","вторник","среда","четверг","пятница","суббота"];
+function parseDate(s) { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d); }
+function addDays(dt, n) { const r = new Date(dt); r.setDate(r.getDate() + n); return r; }
+function fmtDate(dt) { return dt.getDate() + " " + MONTHS[dt.getMonth()] + " " + dt.getFullYear() + " г."; }
+function fmtDateLong(dt) { return fmtDate(dt) + " (" + WEEKDAYS[dt.getDay()] + ")"; }
+function hhmm(min) {
+  const day = Math.floor(min / 1440), m = ((min % 1440) + 1440) % 1440;
+  const t = String(Math.floor(m / 60)).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0");
+  return day > 0 ? t + " (+" + day + " д.)" : t;
+}
+function dur(min) {
+  const h = Math.floor(min / 60), m = min % 60;
+  return (h ? h + " ч" : "") + (h && m ? " " : "") + (m ? m + " мин" : "");
+}
+const ceil15 = m => Math.ceil(m / 15) * 15;
+function limitFor(sp, d) {
+  let t = sp.segs.reduce((a, s, i) => a + SEG[s].pace * d.lens[i], 0);
+  t += (sp.segs.length - 1) * 10; // транзиты
+  return Math.max(30, ceil15(t));
+}
+
+// ---------- Генерация текста ----------
+function generate() {
+  const v = id => document.getElementById(id).value.trim();
+  const dateStr = v("date");
+  const items = selected();
+  const msg = document.getElementById("formMsg");
+  if (!dateStr) { showMsg(msg, "err", "Укажите дату мероприятия."); return; }
+  if (!items.length) { showMsg(msg, "err", "Выберите хотя бы одну дистанцию."); return; }
+  msg.className = "msg";
+
+  const TBD = "[указать]";
+  const date = parseDate(dateStr);
+  const title = v("title") || "Спортивное мероприятие";
+  const place = v("place") || TBD;
+  const org = v("org") || TBD;
+  const contacts = v("contacts") || TBD;
+  const [sh, sm] = (v("startTime") || "08:00").split(":").map(Number);
+  const T0 = sh * 60 + sm;
+  const interval = Math.max(0, parseInt(v("interval"), 10) || 0);
+
+  // Длинные дистанции стартуют первыми.
+  const races = items.map(({ sport, dist }) => ({ sport, dist, limit: limitFor(sport, dist) }))
+    .sort((a, b) => b.limit - a.limit);
+  races.forEach((r, i) => {
+    r.start = T0 + i * interval;
+    r.close = r.start + r.limit;
+    r.award = r.start + ceil15(r.limit * 0.55) + 30;
+    r.label = r.sport.name + ", " + distLabel(r.sport, r.dist);
+  });
+  const sportNames = [...new Set(races.map(r => r.sport.name.toLowerCase()))];
+  const hasTransition = races.some(r => r.sport.transition);
+  const hasSwim = races.some(r => r.sport.segs.includes("swim"));
+  const hasBike = races.some(r => r.sport.segs.includes("bike"));
+  const lastClose = Math.max(...races.map(r => r.close));
+
+  // Тайминг дня старта.
+  const ev = [];
+  ev.push([T0 - 120, "Открытие стартового городка"]);
+  ev.push([T0 - 120, "Выдача стартовых пакетов в день старта (до " + hhmm(T0 - 45) + ")"]);
+  if (hasTransition) ev.push([T0 - 90, "Открытие транзитной зоны, регистрация велосипедов и экипировки (до " + hhmm(T0 - 20) + ")"]);
+  if (hasSwim) ev.push([T0 - 30, "Разминка в воде (до " + hhmm(T0 - 10) + ")"]);
+  ev.push([T0 - 15, "Торжественное открытие, предстартовый брифинг"]);
+  races.forEach(r => {
+    ev.push([r.start, "СТАРТ: " + r.label]);
+    ev.push([r.close, "Закрытие финиша: " + r.label]);
+    ev.push([r.award, "Награждение: " + r.label]);
+  });
+  if (hasTransition) ev.push([lastClose + 15, "Окончание выдачи велосипедов из транзитной зоны"]);
+  ev.push([lastClose + 30, "Закрытие мероприятия"]);
+  ev.sort((a, b) => a[0] - b[0]);
+
+  const L = [];
+  const p = s => L.push(s);
+  p("РЕГЛАМЕНТ");
+  p(title.toUpperCase());
+  p("");
+  p("Дата: " + fmtDateLong(date));
+  p("Место проведения: " + place);
+  p("Организатор: " + org);
+  p("");
+  p("1. ОБЩИЕ ПОЛОЖЕНИЯ");
+  p("1.1. Мероприятие «" + title + "» (далее — Мероприятие) проводится с целью популяризации массового спорта и здорового образа жизни, а также развития видов спорта: " + sportNames.join(", ") + ".");
+  p("1.2. Настоящий регламент определяет порядок проведения Мероприятия, дистанции, программу и тайминг.");
+  p("");
+  p("2. ОРГАНИЗАТОР");
+  p("2.1. Организатор Мероприятия — " + org + ".");
+  p("2.2. Непосредственное проведение соревнований возлагается на главную судейскую коллегию, утверждённую Организатором.");
+  p("");
+  p("3. ВРЕМЯ И МЕСТО ПРОВЕДЕНИЯ");
+  p("3.1. Дата проведения: " + fmtDateLong(date) + ".");
+  p("3.2. Место проведения: " + place + ".");
+  p("3.3. Первый старт — в " + hhmm(T0) + ". Подробный тайминг приведён в разделе 7.");
+  p("");
+  p("4. ДИСТАНЦИИ И ЛИМИТЫ ВРЕМЕНИ");
+  races.forEach((r, i) => {
+    p("4." + (i + 1) + ". " + r.label + ". Старт в " + hhmm(r.start) + ", лимит времени — " + dur(r.limit) + " (финиш закрывается в " + hhmm(r.close) + ").");
+  });
+  p("4." + (races.length + 1) + ". Схемы трасс публикуются Организатором не позднее чем за 7 дней до старта.");
+  p("");
+  p("5. УЧАСТНИКИ");
+  p("5.1. К участию допускаются лица, достигшие 18 лет на день старта. Участники от 14 до 17 лет допускаются на дистанции до 10 км при наличии письменного согласия законного представителя.");
+  p("5.2. Каждый участник обязан предоставить медицинскую справку о допуске к соревнованиям по выбранному виду спорта, выданную не ранее чем за 6 месяцев до старта.");
+  p("5.3. Участник несёт ответственность за соответствие своей подготовки выбранной дистанции.");
+  p("");
+  p("6. РЕГИСТРАЦИЯ И СТАРТОВЫЕ ПАКЕТЫ");
+  p("6.1. Регистрация участников проводится на сайте Организатора и закрывается за 3 дня до старта или при достижении лимита участников.");
+  p("6.2. Стартовые пакеты выдаются " + fmtDate(addDays(date, -1)) + " с 12:00 до 20:00, а также в день старта с " + hhmm(T0 - 120) + " до " + hhmm(T0 - 45) + " по адресу: " + TBD + ".");
+  p("6.3. Для получения стартового пакета необходимо предъявить документ, удостоверяющий личность, и медицинскую справку.");
+  p("6.4. В стартовый пакет входят: стартовый номер, чип хронометража" + (hasSwim ? ", шапочка для плавания" : "") + (hasBike ? ", наклейки на велосипед и шлем" : "") + ", браслет участника.");
+  p("");
+  p("7. ПРОГРАММА И ТАЙМИНГ");
+  p("");
+  p(fmtDateLong(addDays(date, -1)).replace(/^./, c => c.toUpperCase()) + " — день накануне");
+  p("12:00 — Открытие выдачи стартовых пакетов (до 20:00)");
+  p("18:00 — Брифинг для участников");
+  p("");
+  p(fmtDateLong(date).replace(/^./, c => c.toUpperCase()) + " — день старта");
+  ev.forEach(([t, text]) => p(hhmm(t) + " — " + text));
+  p("");
+  p("Организатор вправе вносить изменения в тайминг с уведомлением участников не позднее чем за сутки до старта.");
+  p("");
+  p("8. ПРАВИЛА И ОПРЕДЕЛЕНИЕ РЕЗУЛЬТАТОВ");
+  p("8.1. Хронометраж — электронный, с помощью чипов. Результат участника определяется по чистому времени прохождения дистанции.");
+  p("8.2. Результаты подводятся в абсолютном зачёте среди мужчин и женщин отдельно на каждой дистанции" + (hasTransition ? "; время прохождения транзитных зон входит в итоговый результат" : "") + ".");
+  p("8.3. Участники, не уложившиеся в лимит времени, снимаются с дистанции и получают статус «Не финишировал» (DNF).");
+  p("8.4. Предварительные результаты публикуются в день старта. Протесты принимаются главным судьёй в течение 30 минут после публикации предварительных результатов.");
+  p("");
+  p("9. НАГРАЖДЕНИЕ");
+  p("9.1. Победители и призёры (1–3 место) абсолютного зачёта среди мужчин и женщин на каждой дистанции награждаются кубками, медалями и дипломами.");
+  p("9.2. Все участники, финишировавшие в лимит времени, получают памятную медаль финишёра.");
+  p("9.3. Время награждения по каждой дистанции указано в разделе 7.");
+  p("");
+  p("10. БЕЗОПАСНОСТЬ И МЕДИЦИНСКОЕ ОБЕСПЕЧЕНИЕ");
+  p("10.1. На трассе работают медицинские бригады и судьи. Медицинский пункт расположен в зоне старта/финиша.");
+  if (hasSwim) p("10.2. На плавательном этапе работают спасатели на воде. Решение о допустимости гидрокостюма принимается по температуре воды в день старта.");
+  if (hasBike) p("10." + (hasSwim ? 3 : 2) + ". На велосипедном этапе использование шлема обязательно на протяжении всей дистанции.");
+  p("10." + (1 + (hasSwim ? 1 : 0) + (hasBike ? 1 : 0) + 1) + ". Участник обязан выполнять требования судей и медицинского персонала, в том числе о сходе с дистанции.");
+  p("");
+  p("11. КОНТАКТЫ");
+  p("11.1. " + contacts);
+  p("");
+  p("Настоящий регламент является официальным приглашением на соревнования.");
+  p("");
+  p("—");
+  p("Создано генератором регламентов " + fmtDate(new Date()) + " Проверьте места, отмеченные " + TBD + ", и при необходимости поправьте лимиты времени.");
+
+  const text = L.join("\n");
+  document.getElementById("output").textContent = text;
+  const res = document.getElementById("result");
+  res.style.display = "block";
+  res.dataset.name = "Регламент — " + title + " — " + dateStr;
+  document.getElementById("saveMsg").className = "msg";
+  document.getElementById("openFile").style.display = "none";
+  res.scrollIntoView({ behavior: "smooth" });
+}
+
+function showMsg(el, kind, text) { el.className = "msg " + kind; el.textContent = text; }
+
+// ---------- Сохранение ----------
+const viaServer = location.protocol.startsWith("http");
+let savedFile = null;
+async function save() {
+  const text = document.getElementById("output").textContent;
+  const name = document.getElementById("result").dataset.name;
+  const msg = document.getElementById("saveMsg");
+  if (viaServer) {
+    try {
+      const r = await fetch("/save", { method: "POST", headers: { "Content-Type": "application/json", "X-Reglament": "1" },
+                                       body: JSON.stringify({ name, text }) });
+      const j = await r.json();
+      savedFile = j.file;
+      showMsg(msg, "ok", "Готово! Файл «" + j.file + "» сохранён в папку «Регламенты / Готовые регламенты».");
+      document.getElementById("openFile").style.display = "";
+      document.getElementById("openFolder").style.display = "";
+      return;
+    } catch (e) {
+      showMsg(msg, "err", "Не получилось сохранить в папку. Закройте эту вкладку и снова откройте «Открыть генератор» в папке «Регламенты».");
+      return;
+    }
+  }
+  // Страница открыта напрямую из файла: обычное скачивание в «Загрузки».
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([text], { type: "text/plain;charset=utf-8" }));
+  a.download = name + ".txt";
+  a.click();
+  showMsg(msg, "ok", "Файл скачан в папку «Загрузки». Чтобы он сразу сохранялся в папку «Регламенты», открывайте генератор через «Открыть генератор».");
+}
+async function openTarget(file) {
+  await fetch("/open", { method: "POST", headers: { "Content-Type": "application/json", "X-Reglament": "1" },
+                         body: JSON.stringify({ file }) });
+}
+
+document.getElementById("generate").addEventListener("click", generate);
+document.getElementById("save").addEventListener("click", save);
+document.getElementById("openFile").addEventListener("click", () => openTarget(savedFile));
+document.getElementById("openFolder").addEventListener("click", () => openTarget(null));
+document.getElementById("copy").addEventListener("click", async () => {
+  await navigator.clipboard.writeText(document.getElementById("output").textContent);
+  showMsg(document.getElementById("saveMsg"), "ok", "Текст скопирован.");
+});
+renderSports();
+</script>
+</body>
+</html>
