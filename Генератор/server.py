@@ -58,7 +58,7 @@ class Handler(SimpleHTTPRequestHandler):
             return self.send_json(200, {"ok": True})
         if self.path in ("/", ""):
             self.path = "/index.html"
-        if self.path != "/index.html":
+        if self.path not in ("/index.html", "/generator.js"):
             return self.send_error(404)
         return super().do_GET()
 
