@@ -3,3 +3,5 @@ setup.md
 Готовые регламенты/
 Бот/token.txt
 Бот/bot.log
+node_modules/
+Бот/sheets.json

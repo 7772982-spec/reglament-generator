@@ -8,6 +8,7 @@
 import json
 import os
 import re
+import shutil
 import subprocess
 import threading
 import time
@@ -16,6 +17,7 @@ from http.server import HTTPServer, SimpleHTTPRequestHandler
 PORT = 8765
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT_DIR = os.path.join(os.path.dirname(HERE), "Готовые регламенты")
+SAVE_TO_DB = os.path.join(os.path.dirname(HERE), "Бот", "save-to-sheet.js")
 IDLE_LIMIT = 3 * 60 * 60
 
 last_activity = time.time()
@@ -34,6 +36,17 @@ def unique_path(base):
         path = os.path.join(OUT_DIR, "%s (%d).txt" % (base, n))
         n += 1
     return path
+
+
+def save_to_db(data):
+    """Копия регламента — в Google-таблицу (через Бот/save-to-sheet.js). Файл в папке сохраняется в любом случае."""
+    node = shutil.which("node") or "/opt/homebrew/bin/node"
+    try:
+        r = subprocess.run([node, SAVE_TO_DB], input=json.dumps(data, ensure_ascii=False).encode("utf-8"),
+                           capture_output=True, timeout=20)
+        return r.returncode == 0
+    except Exception:
+        return False
 
 
 class Handler(SimpleHTTPRequestHandler):
@@ -79,7 +92,8 @@ class Handler(SimpleHTTPRequestHandler):
             path = unique_path(safe_name(str(data.get("name", ""))))
             with open(path, "w", encoding="utf-8") as f:
                 f.write(str(data.get("text", "")))
-            return self.send_json(200, {"ok": True, "path": path, "file": os.path.basename(path)})
+            in_db = save_to_db(data)
+            return self.send_json(200, {"ok": True, "path": path, "file": os.path.basename(path), "db": in_db})
 
         if self.path == "/open":
             target = OUT_DIR

@@ -204,7 +204,8 @@ async function save() {
                                        body: JSON.stringify({ name, text }) });
       const j = await r.json();
       savedFile = j.file;
-      showMsg(msg, "ok", "Готово! Файл «" + j.file + "» сохранён в папку «Регламенты / Готовые регламенты».");
+      showMsg(msg, "ok", "Готово! Файл «" + j.file + "» сохранён в папку «Регламенты / Готовые регламенты»"
+        + (j.db ? " и в Google-таблицу." : ". В Google-таблицу сохранить не получилось (нет связи)."));
       document.getElementById("openFile").style.display = "";
       document.getElementById("openFolder").style.display = "";
       return;

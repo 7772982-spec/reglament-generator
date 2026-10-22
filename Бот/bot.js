@@ -1,14 +1,15 @@
 // Telegram-бот генератора регламентов.
-// Ключ бота лежит в token.txt рядом (в GitHub не публикуется).
+// Ключ бота лежит в token.txt, ссылка на таблицу — в sheets.json (оба в GitHub не публикуются).
+// Список дистанций, состояние разговоров и все регламенты хранятся в Google-таблице (см. sheets.js).
 // Запуск: node bot.js
 const fs = require("fs");
 const path = require("path");
-// Пути можно переопределить (так делает автозапуск, которому macOS не даёт читать «Документы»).
+// Путь к генератору можно переопределить (так делает автозапуск, которому macOS не даёт читать «Документы»).
 const R = require(process.env.REGLAMENT_GENERATOR || "../Генератор/generator.js");
+const db = require("./sheets.js");
 
 const TOKEN = fs.readFileSync(path.join(__dirname, "token.txt"), "utf8").trim();
 const API = "https://api.telegram.org/bot" + TOKEN + "/";
-const OUT_DIR = process.env.REGLAMENT_OUT || path.join(__dirname, "..", "Готовые регламенты");
 
 const log = (...a) => console.log(new Date().toISOString(), ...a);
 
@@ -33,34 +34,33 @@ async function sendDocument(chatId, fileName, text, caption) {
   if (!j.ok) throw new Error("sendDocument: " + j.description);
 }
 
-// ---------- Состояние разговора с каждым пользователем ----------
-const chats = new Map();
-function state(chatId) {
-  if (!chats.has(chatId)) chats.set(chatId, { sel: new Map(), custom: {}, wait: null });
-  return chats.get(chatId);
-}
+// ---------- Состояние разговора (хранится в базе) ----------
+// sel: { "вид:номер": { sportId, dist } }, custom: { вид: [дистанции] }, wait: чего ждём от пользователя
+const newState = () => ({ sel: {}, custom: {}, wait: null });
+async function loadState(chatId) { return (await db.loadState(chatId)) || newState(); }
 const distancesOf = (st, sp) => R.presetDistances(sp).concat(st.custom[sp.id] || []);
+const selCount = st => Object.keys(st.sel).length;
 
 // ---------- Клавиатуры ----------
 function sportsKeyboard(st) {
   const rows = [];
   for (let i = 0; i < R.SPORTS.length; i += 2) {
     rows.push(R.SPORTS.slice(i, i + 2).map(sp => {
-      const n = [...st.sel.keys()].filter(k => k.startsWith(sp.id + ":")).length;
+      const n = Object.keys(st.sel).filter(k => k.startsWith(sp.id + ":")).length;
       return { text: sp.name + (n ? " (" + n + ")" : ""), callback_data: "sp:" + sp.id };
     }));
   }
-  if (st.sel.size) rows.push([{ text: "✅ Дальше: указать дату", callback_data: "next" }]);
+  if (selCount(st)) rows.push([{ text: "✅ Дальше: указать дату", callback_data: "next" }]);
   return { inline_keyboard: rows };
 }
 function sportsText(st) {
-  if (!st.sel.size) return "Выберите вид спорта:";
-  const list = [...st.sel.values()].map(it => "• " + R.sportById(it.sportId).name + ", " + R.distLabel(R.sportById(it.sportId), it.dist));
+  if (!selCount(st)) return "Выберите вид спорта:";
+  const list = Object.values(st.sel).map(it => "• " + R.sportById(it.sportId).name + ", " + R.distLabel(R.sportById(it.sportId), it.dist));
   return "Выбрано:\n" + list.join("\n") + "\n\nМожно добавить ещё или нажать «Дальше».";
 }
 function distKeyboard(st, sp) {
   const rows = distancesOf(st, sp).map((d, i) => {
-    const on = st.sel.has(sp.id + ":" + i);
+    const on = (sp.id + ":" + i) in st.sel;
     return [{ text: (on ? "✅ " : "▫️ ") + R.distLabel(sp, d), callback_data: "d:" + sp.id + ":" + i }];
   });
   rows.push([{ text: "➕ Своя дистанция", callback_data: "cu:" + sp.id }]);
@@ -81,10 +81,11 @@ async function showDistances(chatId, st, sp, editId) {
 }
 
 async function start(chatId) {
-  chats.delete(chatId);
+  const st = newState();
+  db.saveState(chatId, st);
   await tg("sendMessage", { chat_id: chatId,
     text: "Привет! Я составлю регламент и тайминг спортивного мероприятия.\n\nВыберите виды спорта и дистанции, потом укажите дату, и я пришлю готовый файл." });
-  await showSports(chatId, state(chatId));
+  await showSports(chatId, st);
 }
 
 function parseDate(s) {
@@ -104,56 +105,24 @@ function parseCustom(sp, s) {
   return { name: rest.join(",").trim() || "Своя дистанция", lens };
 }
 
-async function finish(chatId, st) {
-  const { text, fileName } = R.buildReglament({
-    date: st.date, title: st.title,
-    items: [...st.sel.values()],
-  });
-  // Копия — в папку «Готовые регламенты» на компьютере.
-  try {
-    fs.mkdirSync(OUT_DIR, { recursive: true });
-    const safe = fileName.replace(/[\\/:*?"<>|\n\r\t]+/g, " ").slice(0, 120);
-    let p = path.join(OUT_DIR, safe + ".txt"), n = 2;
-    while (fs.existsSync(p)) p = path.join(OUT_DIR, safe + " (" + n++ + ").txt");
-    fs.writeFileSync(p, text, "utf8");
-  } catch (e) { log("Не удалось сохранить копию:", e.message); }
+async function finish(chatId, st, from) {
+  const params = { date: st.date, title: st.title, items: Object.values(st.sel) };
+  const { text, fileName } = R.buildReglament(params);
   await sendDocument(chatId, fileName + ".txt", text, "Готово! Проверьте места, отмеченные [указать].");
-  await tg("sendMessage", { chat_id: chatId, text: "Чтобы составить новый регламент, отправьте /new" });
-  chats.delete(chatId);
-}
-
-// ---------- Обработка событий ----------
-async function onMessage(msg) {
-  const chatId = msg.chat.id;
-  const text = (msg.text || "").trim();
-  if (text === "/start" || text === "/new") return start(chatId);
-  const st = state(chatId);
-
-  if (st.wait && st.wait.startsWith("custom:")) {
-    const sp = R.sportById(st.wait.slice(7));
-    const d = parseCustom(sp, text);
-    if (!d) {
-      return tg("sendMessage", { chat_id: chatId, text: "Не понял. " + customHint(sp) });
-    }
-    (st.custom[sp.id] = st.custom[sp.id] || []).push(d);
-    const idx = distancesOf(st, sp).length - 1;
-    st.sel.set(sp.id + ":" + idx, { sportId: sp.id, dist: d });
-    st.wait = null;
-    return showDistances(chatId, st, sp);
+  db.deleteState(chatId);
+  const items = Object.values(st.sel);
+  const user = from ? (from.username ? "@" + from.username : [from.first_name, from.last_name].filter(Boolean).join(" ")) : "";
+  try {
+    await db.saveReglament({
+      source: "Telegram-бот", user, date: st.date, title: st.title || "Спортивное мероприятие",
+      sports: [...new Set(items.map(it => R.sportById(it.sportId).name))].join(", "),
+      distances: items.map(it => R.sportById(it.sportId).name + ": " + R.distLabel(R.sportById(it.sportId), it.dist)).join("\n"),
+      startTime: "08:00", fileName: fileName + ".txt", text });
+    await tg("sendMessage", { chat_id: chatId, text: "Регламент записан в таблицу. Чтобы составить новый, отправьте /new" });
+  } catch (e) {
+    log("Не удалось записать регламент в таблицу:", e.message);
+    await tg("sendMessage", { chat_id: chatId, text: "Файл готов, но записать его в таблицу не получилось. Чтобы составить новый регламент, отправьте /new" });
   }
-  if (st.wait === "date") {
-    const date = parseDate(text);
-    if (!date) return tg("sendMessage", { chat_id: chatId, text: "Напишите дату в виде ДД.ММ.ГГГГ, например 12.06.2027" });
-    st.date = date;
-    st.wait = "title";
-    return tg("sendMessage", { chat_id: chatId, text: "Как называется мероприятие? Напишите название или нажмите «Пропустить».", reply_markup: skipKeyboard });
-  }
-  if (st.wait === "title") {
-    st.title = text;
-    st.wait = null;
-    return finish(chatId, st);
-  }
-  return start(chatId);
 }
 
 function customHint(sp) {
@@ -163,36 +132,72 @@ function customHint(sp) {
   return "Напишите длину этапов в километрах через «/» (" + names + "), например: " + example + "\nМожно с названием через запятую: " + example + ", Мой формат";
 }
 
+// ---------- Обработка событий ----------
+async function onMessage(msg) {
+  const chatId = msg.chat.id;
+  const text = (msg.text || "").trim();
+  if (text === "/start" || text === "/new") return start(chatId);
+  const st = await loadState(chatId);
+
+  if (st.wait && st.wait.startsWith("custom:")) {
+    const sp = R.sportById(st.wait.slice(7));
+    const d = parseCustom(sp, text);
+    if (!d) return tg("sendMessage", { chat_id: chatId, text: "Не понял. " + customHint(sp) });
+    (st.custom[sp.id] = st.custom[sp.id] || []).push(d);
+    const idx = distancesOf(st, sp).length - 1;
+    st.sel[sp.id + ":" + idx] = { sportId: sp.id, dist: d };
+    st.wait = null;
+    db.saveState(chatId, st);
+    return showDistances(chatId, st, sp);
+  }
+  if (st.wait === "date") {
+    const date = parseDate(text);
+    if (!date) return tg("sendMessage", { chat_id: chatId, text: "Напишите дату в виде ДД.ММ.ГГГГ, например 12.06.2027" });
+    st.date = date;
+    st.wait = "title";
+    db.saveState(chatId, st);
+    return tg("sendMessage", { chat_id: chatId, text: "Как называется мероприятие? Напишите название или нажмите «Пропустить».", reply_markup: skipKeyboard });
+  }
+  if (st.wait === "title") {
+    st.title = text;
+    return finish(chatId, st, msg.from);
+  }
+  return start(chatId);
+}
+
 async function onCallback(q) {
   const chatId = q.message.chat.id, msgId = q.message.message_id, data = q.data || "";
-  const st = state(chatId);
   await tg("answerCallbackQuery", { callback_query_id: q.id }).catch(() => {});
+  const st = await loadState(chatId);
   const [kind, a, b] = data.split(":");
   if (kind === "sp") return showDistances(chatId, st, R.sportById(a), msgId);
   if (kind === "back") return showSports(chatId, st, msgId);
   if (kind === "d") {
     const sp = R.sportById(a), key = a + ":" + b;
-    if (st.sel.has(key)) st.sel.delete(key);
-    else st.sel.set(key, { sportId: a, dist: distancesOf(st, sp)[+b] });
+    if (key in st.sel) delete st.sel[key];
+    else st.sel[key] = { sportId: a, dist: distancesOf(st, sp)[+b] };
+    db.saveState(chatId, st);
     return showDistances(chatId, st, sp, msgId);
   }
   if (kind === "cu") {
     st.wait = "custom:" + a;
+    db.saveState(chatId, st);
     return tg("sendMessage", { chat_id: chatId, text: R.sportById(a).name + ", своя дистанция.\n" + customHint(R.sportById(a)) });
   }
   if (kind === "next") {
-    if (!st.sel.size) return showSports(chatId, st, msgId);
+    if (!selCount(st)) return showSports(chatId, st, msgId);
     st.wait = "date";
+    db.saveState(chatId, st);
     return tg("sendMessage", { chat_id: chatId, text: "Когда мероприятие? Напишите дату, например 12.06.2027" });
   }
-  if (kind === "skip" && st.wait === "title") {
-    st.wait = null;
-    return finish(chatId, st);
-  }
+  if (kind === "skip" && st.wait === "title") return finish(chatId, st, q.from);
 }
 
 // ---------- Основной цикл ----------
 async function main() {
+  await db.init(R);
+  const cat = await db.loadCatalog(R);
+  log("Дистанций из таблицы: " + cat.count + (cat.skipped.length ? ", пропущены строки: " + cat.skipped.join(", ") : ""));
   const me = await tg("getMe");
   log("Бот запущен: @" + me.username);
   await tg("setMyCommands", { commands: [{ command: "new", description: "Новый регламент" }] }).catch(() => {});
@@ -214,4 +219,5 @@ async function main() {
   }
 }
 
-main().catch(e => { log("Не удалось запустить бота:", e.message); process.exit(1); });
+if (require.main === module) main().catch(e => { log("Не удалось запустить бота:", e.message); process.exit(1); });
+module.exports = { onMessage, onCallback };
