@@ -3,11 +3,12 @@
 // Запуск: node bot.js
 const fs = require("fs");
 const path = require("path");
-const R = require("../Генератор/generator.js");
+// Пути можно переопределить (так делает автозапуск, которому macOS не даёт читать «Документы»).
+const R = require(process.env.REGLAMENT_GENERATOR || "../Генератор/generator.js");
 
 const TOKEN = fs.readFileSync(path.join(__dirname, "token.txt"), "utf8").trim();
 const API = "https://api.telegram.org/bot" + TOKEN + "/";
-const OUT_DIR = path.join(__dirname, "..", "Готовые регламенты");
+const OUT_DIR = process.env.REGLAMENT_OUT || path.join(__dirname, "..", "Готовые регламенты");
 
 const log = (...a) => console.log(new Date().toISOString(), ...a);
 
